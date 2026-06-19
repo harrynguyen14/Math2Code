@@ -1,7 +1,8 @@
 from unsloth import FastVisionModel
 from unsloth.trainer import UnslothVisionDataCollator
-from datasets import load_dataset
+from datasets import load_dataset, interleave_datasets
 from trl import SFTTrainer, SFTConfig
+import glob
 
 
 max_seq_length = 4096 
@@ -12,7 +13,7 @@ model, tokenizer = FastVisionModel.from_pretrained(
     model_name=model_name,
     load_in_4bit=False,
     max_seq_length=max_seq_length,
-    use_gradient_checkpointing="unsloth",
+    use_gradient_checkpointing=False,           # tắt: GPU đủ VRAM, train nhanh hơn ~10-20%
 )
 
 # Giới hạn token ảnh: ảnh dataset rộng tới 3000px sẽ ngốn token khổng lồ + phình VRAM.
@@ -36,13 +37,17 @@ model = FastVisionModel.get_peft_model(
 )
 
 
-dataset = load_dataset(
-    "parquet",
-    data_files={"train": "/data/math-dataset/Python/*.parquet"},
-    split="train",
-    streaming=True,                             # đọc thẳng từ parquet, KHÔNG gen ~76G Arrow cache ra đĩa
-)
-dataset = dataset.shuffle(seed=3407, buffer_size=10000)
+# MỖI SHARD = 1 LOẠI CHART khác nhau (shard0=hình, shard1=biểu đồ, shard2=chart, ...).
+# Đọc tuần tự (load_dataset gộp + streaming) -> 160k mẫu đầu chỉ vét ~2 shard đầu, model MÙ các loại sau.
+# Fix: load mỗi shard thành 1 stream riêng rồi interleave -> mỗi step rút luân phiên đều 20 loại.
+shards = sorted(glob.glob("/data/math-dataset/Python/*.parquet"))
+streams = [
+    load_dataset("parquet", data_files={"train": s}, split="train", streaming=True)
+    .shuffle(seed=3407, buffer_size=2000)       # trộn trong từng loại
+    for s in shards
+]
+dataset = interleave_datasets(streams, stopping_strategy="all_exhausted")  # phủ đều mọi loại
+dataset = dataset.shuffle(seed=3407, buffer_size=10000)                    # trộn lại sau interleave
 
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
@@ -88,10 +93,10 @@ dataset = dataset.map(to_messages, batched=True, remove_columns=["id", "image", 
 
 
 training_args = SFTConfig(
-    per_device_train_batch_size=4,              # 5090 32GB + LoRA 16-bit + grad-ckpt thừa sức; hạ về 2 nếu OOM
-    gradient_accumulation_steps=4,              # tổng batch = 16
+    per_device_train_batch_size=1,              # PHẢI =1: Unsloth Qwen3-VL crash khi batch nhiều ảnh khác grid_thw (pos_embeds shape mismatch)
+    gradient_accumulation_steps=16,             # bù lại batch=1 -> tổng batch vẫn 16
     warmup_steps=100,
-    max_steps=10000,                            # streaming KHÔNG biết trước độ dài -> dùng max_steps (không dùng epoch). 10000*16=160k ảnh; tăng nếu muốn train lâu hơn
+    max_steps=125000,                           # 125000*16 = 2tr ảnh (~100k/loại qua 20 shard). streaming -> dùng max_steps thay epoch
     learning_rate=2e-4,
     bf16=True,                                 
     logging_steps=1,
@@ -100,7 +105,7 @@ training_args = SFTConfig(
     lr_scheduler_type="cosine",
     output_dir="outputs_qwen3_math_5090",
     save_strategy="steps",                      # train nhiều ngày -> checkpoint để không mất tiến độ khi crash
-    save_steps=500,
+    save_steps=2000,                            # train ~50h -> giãn save (125k steps); save_total_limit giữ 3 cái mới nhất
     save_total_limit=3,
 
     remove_unused_columns=False,
