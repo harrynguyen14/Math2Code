@@ -47,9 +47,17 @@ dataset = dataset.shuffle(seed=3407, buffer_size=10000)
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
 
-import math
+import math, io
+from PIL import Image
 
 def _resize(img):
+    # cột parquet có thể là bytes thô, dict {"bytes":...}, hoặc PIL Image -> chuẩn hoá về PIL
+    if isinstance(img, dict):
+        img = img.get("bytes") or img.get("path")
+    if isinstance(img, (bytes, bytearray)):
+        img = Image.open(io.BytesIO(img))
+    elif isinstance(img, str):
+        img = Image.open(img)
     # giảm ảnh về <= MAX_PIXELS, giữ tỉ lệ; bội số 28 (patch size) để grid khớp pos_embed
     img = img.convert("RGB")
     w, h = img.size
