@@ -42,30 +42,37 @@ dataset = load_dataset(
     "parquet",
     data_files={"train": "/data/math-dataset/Python/*.parquet"},
     split="train",
+    streaming=True,                             # đọc thẳng từ parquet, KHÔNG gen ~76G Arrow cache ra đĩa
 )
+dataset = dataset.shuffle(seed=3407, buffer_size=10000)
 
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
 
-def to_messages(row):
+def to_messages(batch):
+    # batched transform on-the-fly: KHÔNG ghi cache ra đĩa (tránh hết dung lượng)
     return {"messages": [
-        {"role": "user", "content": [
-            {"type": "image", "image": row["image"]},
-            {"type": "text", "text": INSTRUCTION},
-        ]},
-        {"role": "assistant", "content": [
-            {"type": "text", "text": row["text"]},
-        ]},
+        [
+            {"role": "user", "content": [
+                {"type": "image", "image": img},
+                {"type": "text", "text": INSTRUCTION},
+            ]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": txt},
+            ]},
+        ]
+        for img, txt in zip(batch["image"], batch["text"])
     ]}
 
-dataset = dataset.map(to_messages, remove_columns=dataset.column_names)
+# streaming: .map chạy on-the-fly, không ghi cache ra đĩa
+dataset = dataset.map(to_messages, batched=True, remove_columns=["id", "image", "text", "source"])
 
 
 training_args = SFTConfig(
     per_device_train_batch_size=4,              # 5090 32GB + LoRA 16-bit + grad-ckpt thừa sức; hạ về 2 nếu OOM
     gradient_accumulation_steps=4,              # tổng batch = 16
-    warmup_ratio=0.03,
-    num_train_epochs=1,                         # train thật trên toàn dataset; dùng max_steps=60 để chạy thử
+    warmup_steps=100,
+    max_steps=10000,                            # streaming KHÔNG biết trước độ dài -> dùng max_steps (không dùng epoch). 10000*16=160k ảnh; tăng nếu muốn train lâu hơn
     learning_rate=2e-4,
     bf16=True,                                 
     logging_steps=1,
