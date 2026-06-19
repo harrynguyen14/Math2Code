@@ -17,8 +17,11 @@ model, tokenizer = FastVisionModel.from_pretrained(
 
 # Giới hạn token ảnh: ảnh dataset rộng tới 3000px sẽ ngốn token khổng lồ + phình VRAM.
 # 1024*28*28 ~ 800k px (vd 896x896) đủ chi tiết cho hình toán mà giữ chuỗi trong max_seq_length.
-tokenizer.image_processor.min_pixels = 256 * 28 * 28
-tokenizer.image_processor.max_pixels = 1024 * 28 * 28
+# transformers 5.x: min/max_pixels là property read-only -> ghi thẳng vào __dict__ + size.
+_ip = tokenizer.image_processor
+_ip.size = {"shortest_edge": 256 * 28 * 28, "longest_edge": 1024 * 28 * 28}
+_ip.__dict__["min_pixels"] = 256 * 28 * 28
+_ip.__dict__["max_pixels"] = 1024 * 28 * 28
 
 
 model = FastVisionModel.get_peft_model(
