@@ -17,11 +17,9 @@ model, tokenizer = FastVisionModel.from_pretrained(
 
 # Giới hạn token ảnh: ảnh dataset rộng tới 3000px sẽ ngốn token khổng lồ + phình VRAM.
 # 1024*28*28 ~ 800k px (vd 896x896) đủ chi tiết cho hình toán mà giữ chuỗi trong max_seq_length.
-# transformers 5.x: min/max_pixels là property read-only -> ghi thẳng vào __dict__ + size.
-_ip = tokenizer.image_processor
-_ip.size = {"shortest_edge": 256 * 28 * 28, "longest_edge": 1024 * 28 * 28}
-_ip.__dict__["min_pixels"] = 256 * 28 * 28
-_ip.__dict__["max_pixels"] = 1024 * 28 * 28
+# Resize ảnh thủ công trong to_messages thay vì vá processor internals
+# (vá __dict__ trên transformers 5.x làm patch count lệch pos_embed -> RuntimeError shape mismatch ở vision tower).
+MAX_PIXELS = 1024 * 28 * 28
 
 
 model = FastVisionModel.get_peft_model(
@@ -49,12 +47,25 @@ dataset = dataset.shuffle(seed=3407, buffer_size=10000)
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
 
+import math
+
+def _resize(img):
+    # giảm ảnh về <= MAX_PIXELS, giữ tỉ lệ; bội số 28 (patch size) để grid khớp pos_embed
+    img = img.convert("RGB")
+    w, h = img.size
+    if w * h > MAX_PIXELS:
+        s = math.sqrt(MAX_PIXELS / (w * h))
+        w, h = int(w * s), int(h * s)
+    w = max(28, w - w % 28)
+    h = max(28, h - h % 28)
+    return img.resize((w, h))
+
 def to_messages(batch):
     # batched transform on-the-fly: KHÔNG ghi cache ra đĩa (tránh hết dung lượng)
     return {"messages": [
         [
             {"role": "user", "content": [
-                {"type": "image", "image": img},
+                {"type": "image", "image": _resize(img)},
                 {"type": "text", "text": INSTRUCTION},
             ]},
             {"role": "assistant", "content": [
