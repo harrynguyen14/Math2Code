@@ -1,6 +1,6 @@
 from unsloth import FastVisionModel
 from unsloth.trainer import UnslothVisionDataCollator
-from datasets import load_dataset, interleave_datasets
+from datasets import load_dataset
 from trl import SFTTrainer, SFTConfig
 import glob
 
@@ -38,16 +38,11 @@ model = FastVisionModel.get_peft_model(
 
 
 # MỖI SHARD = 1 LOẠI CHART khác nhau (shard0=hình, shard1=biểu đồ, shard2=chart, ...).
-# Đọc tuần tự (load_dataset gộp + streaming) -> 160k mẫu đầu chỉ vét ~2 shard đầu, model MÙ các loại sau.
-# Fix: load mỗi shard thành 1 stream riêng rồi interleave -> mỗi step rút luân phiên đều 20 loại.
+# Container giới hạn 48GB RAM -> interleave 20 stream song song hoặc buffer to = OOM Killed.
+# 1 stream gộp 20 file + shuffle buffer vừa phải (ảnh decode nặng RAM nên không để quá lớn).
 shards = sorted(glob.glob("/data/math-dataset/Python/*.parquet"))
-streams = [
-    load_dataset("parquet", data_files={"train": s}, split="train", streaming=True)
-    .shuffle(seed=3407, buffer_size=2000)       # trộn trong từng loại
-    for s in shards
-]
-dataset = interleave_datasets(streams, stopping_strategy="all_exhausted")  # phủ đều mọi loại
-dataset = dataset.shuffle(seed=3407, buffer_size=10000)                    # trộn lại sau interleave
+dataset = load_dataset("parquet", data_files={"train": shards}, split="train", streaming=True)
+dataset = dataset.shuffle(seed=3407, buffer_size=3000)
 
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
@@ -96,7 +91,7 @@ training_args = SFTConfig(
     per_device_train_batch_size=1,              # PHẢI =1: Unsloth Qwen3-VL crash khi batch nhiều ảnh khác grid_thw (pos_embeds shape mismatch)
     gradient_accumulation_steps=16,             # bù lại batch=1 -> tổng batch vẫn 16
     warmup_steps=100,
-    max_steps=125000,                           # 125000*16 = 2tr ảnh (~100k/loại qua 20 shard). streaming -> dùng max_steps thay epoch
+    max_steps=16000,                            # 16000*16 = 256k ảnh (~13k/loại), ~24h. streaming -> dùng max_steps thay epoch. Tăng nếu eval còn yếu
     learning_rate=2e-4,
     bf16=True,                                 
     logging_steps=1,
