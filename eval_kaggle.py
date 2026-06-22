@@ -67,7 +67,7 @@ bnb = BitsAndBytesConfig(
 )
 print("Loading base + adapter (4-bit)...")
 base = AutoModelForImageTextToText.from_pretrained(
-    args.base, quantization_config=bnb, torch_dtype=torch.float16, device_map="auto")
+    args.base, quantization_config=bnb, dtype=torch.float16, device_map="auto")
 model = PeftModel.from_pretrained(base, args.adapter)
 model.eval()
 proc = AutoProcessor.from_pretrained(args.adapter)
