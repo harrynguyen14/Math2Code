@@ -12,14 +12,15 @@ ap.add_argument("--base", default="unsloth/Qwen3-VL-8B-Instruct")
 ap.add_argument("--adapter", default="harryrobert/Qwen-3-VL-Math-Spec")
 ap.add_argument("--port", type=int, default=8000)
 ap.add_argument("--max-len", type=int, default=8192, help="ctx len; giảm nếu OOM trên T4")
+ap.add_argument("--tp", type=int, default=2, help="tensor-parallel: 2 cho T4 x2 (fp16, khỏi quantize)")
+ap.add_argument("--bnb", action="store_true", help="dùng 4-bit bitsandbytes (1 T4); cần bnb khớp CUDA")
 args = ap.parse_args()
 
-# vLLM serve: 4-bit bitsandbytes để 8B vừa T4 15GB, bật LoRA adapter
+# Mặc định: fp16 trên T4 x2 (TP=2) -> 16GB weights chia 2 GPU, không cần quantize.
+# --bnb: 4-bit trên 1 T4 (chỉ dùng nếu bitsandbytes load được, hiện đang lỗi libnvJitLink).
 cmd = [
     sys.executable, "-m", "vllm.entrypoints.openai.api_server",
     "--model", args.base,
-    "--quantization", "bitsandbytes",
-    "--load-format", "bitsandbytes",
     "--enable-lora",
     "--lora-modules", f"math={args.adapter}",
     "--max-model-len", str(args.max_len),
@@ -28,6 +29,10 @@ cmd = [
     "--dtype", "float16",            # T4 không có bf16 tensor core
     "--max-num-seqs", "4",           # tải thấp; tăng nếu cần throughput
 ]
+if args.bnb:
+    cmd += ["--quantization", "bitsandbytes", "--load-format", "bitsandbytes"]
+else:
+    cmd += ["--tensor-parallel-size", str(args.tp)]
 print("Launching vLLM:\n  " + " ".join(cmd) + "\n")
 print(f"Khi sẵn sàng, gọi model name = 'math' tại http://localhost:{args.port}/v1\n")
 subprocess.run(cmd, check=True)
