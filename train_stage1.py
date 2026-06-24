@@ -10,7 +10,7 @@ from transformers import Trainer, TrainingArguments
 from model import MathCoderVLM
 from data import make_dataset, Collator
 
-SHARDS = "/workspace/data/math-dataset/Python/*.parquet"
+SHARDS = "/workspace/data/math-dataset/Python_rg/*.parquet"  # reshard.py: row-group nhỏ, hết OOM
 
 # Blackwell (sm_120): bật TF32 cho matmul/cudnn -> nhanh hơn fp32 path, không đụng bf16.
 torch.set_float32_matmul_precision("high")
@@ -39,7 +39,7 @@ def main():
         save_steps=1000,
         save_total_limit=2,
         remove_unused_columns=False,
-        dataloader_num_workers=0,            # debug OOM: chạy trong process chính để thấy lỗi thật
+        dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
     )

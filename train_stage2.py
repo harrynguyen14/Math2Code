@@ -10,7 +10,7 @@ from transformers import Trainer, TrainingArguments
 from model import MathCoderVLM
 from data import make_dataset, Collator
 
-SHARDS = "/workspace/data/math-dataset/Python/*.parquet"
+SHARDS = "/workspace/data/math-dataset/Python_rg/*.parquet"  # reshard.py: row-group nhỏ, hết OOM
 PROJECTOR = "out/stage1/projector.pt"
 
 # Blackwell (sm_120): TF32 matmul/cudnn.
