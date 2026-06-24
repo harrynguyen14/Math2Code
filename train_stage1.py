@@ -39,7 +39,7 @@ def main():
         save_steps=1000,
         save_total_limit=2,
         remove_unused_columns=False,
-        dataloader_num_workers=2,            # 1 shard -> nhiều worker vô dụng + OOM (mỗi worker copy state)
+        dataloader_num_workers=0,            # debug OOM: chạy trong process chính để thấy lỗi thật
         dataloader_pin_memory=True,
         report_to="none",
     )
