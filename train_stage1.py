@@ -6,9 +6,18 @@ Chạy: python train_stage1.py
 Ra:   out/stage1/projector.pt
 """
 import torch
-from transformers import Trainer, TrainingArguments
+from transformers import Trainer, TrainingArguments, TrainerCallback
 from model import MathCoderVLM
 from data import make_dataset, Collator
+
+
+class SaveProjector(TrainerCallback):
+    """Chỉ projector train được -> lưu mỗi N step (thay Trainer save bị lỗi tied-weight)."""
+    def __init__(self, projector, every=1000):
+        self.projector, self.every = projector, every
+    def on_step_end(self, args, state, control, **kw):
+        if state.global_step % self.every == 0:
+            torch.save(self.projector.state_dict(), "out/stage1/projector.pt")
 
 SHARDS = "/workspace/data/math-dataset/Python_rg/*.parquet"  # reshard.py: row-group nhỏ, hết OOM
 
@@ -38,15 +47,16 @@ def main():
         bf16=True,
         tf32=True,
         logging_steps=10,
-        save_steps=1000,
-        save_total_limit=2,
-        remove_unused_columns=False,
+        save_strategy="no",                  # Trainer save cả model -> lỗi tied-weight Qwen2 + thừa.
+        remove_unused_columns=False,         # chỉ projector cần lưu -> callback dưới lo.
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
     )
+    import os; os.makedirs("out/stage1", exist_ok=True)
     trainer = Trainer(model=model, args=args, train_dataset=ds,
-                      data_collator=Collator(model))
+                      data_collator=Collator(model),
+                      callbacks=[SaveProjector(model.projector)])
     trainer.train()
 
     torch.save(model.projector.state_dict(), "out/stage1/projector.pt")

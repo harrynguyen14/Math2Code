@@ -6,9 +6,21 @@ Ra:   out/stage2 (checkpoint) + projector cuối
 """
 import torch
 from peft import LoraConfig, get_peft_model
-from transformers import Trainer, TrainingArguments
+from transformers import Trainer, TrainingArguments, TrainerCallback
 from model import MathCoderVLM
 from data import make_dataset, Collator
+
+
+class SaveCkpt(TrainerCallback):
+    """Lưu phần train được (LoRA adapter + projector) mỗi N step -> resume khi crash.
+    Ko dùng Trainer save vì nó lưu cả decoder -> lỗi tied-weight Qwen2 (embed/lm_head share)."""
+    def __init__(self, model, every=2000):
+        self.model, self.every = model, every
+    def on_step_end(self, args, state, control, **kw):
+        if state.global_step % self.every == 0:
+            d = f"out/stage2/step-{state.global_step}"
+            self.model.decoder.save_pretrained(d)  # PEFT: chỉ adapter
+            torch.save(self.model.projector.state_dict(), f"{d}/projector.pt")
 
 SHARDS = "/workspace/data/math-dataset/Python_rg/*.parquet"  # reshard.py: row-group nhỏ, hết OOM
 PROJECTOR = "out/stage1/projector.pt"
@@ -56,15 +68,15 @@ def main():
         optim="adamw_torch_fused",           # fused optim: nhanh hơn trên CUDA
         weight_decay=0.01,
         logging_steps=10,
-        save_steps=2000,
-        save_total_limit=3,
-        remove_unused_columns=False,
+        save_strategy="no",                  # Trainer save cả model -> lỗi tied-weight Qwen2.
+        remove_unused_columns=False,         # callback dưới lưu adapter+projector mỗi 2000 step.
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
     )
     trainer = Trainer(model=model, args=args, train_dataset=ds,
-                      data_collator=Collator(model))
+                      data_collator=Collator(model),
+                      callbacks=[SaveCkpt(model)])
     trainer.train()
 
     model.save_pretrained("out/stage2/final")   # 1 thư mục: decoder(LoRA)+projector+tokenizer
