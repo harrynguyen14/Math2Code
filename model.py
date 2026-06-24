@@ -76,9 +76,11 @@ class MathCoderVLM(nn.Module):
         embeds = self.decoder.get_input_embeddings()(input_ids)  # [B, T, d_llm]
         if pixel_values is not None:
             vis = self.encode_images(pixel_values).to(embeds.dtype)  # [B, n_vis, d_llm]
-            # thay embed tại vị trí image token bằng vision embeds (theo thứ tự xuất hiện)
-            mask = input_ids == self.image_token_id
-            embeds[mask] = vis.reshape(-1, vis.shape[-1])
+            # thay embed tại vị trí image token bằng vision embeds (theo thứ tự xuất hiện).
+            # masked_scatter (ko in-place): stage2 bật input_require_grads -> embeds là leaf
+            # requires_grad, gán embeds[mask]=... in-place bị autograd cấm.
+            mask = (input_ids == self.image_token_id).unsqueeze(-1)
+            embeds = embeds.masked_scatter(mask, vis.reshape(-1, vis.shape[-1]).to(embeds.dtype))
         return self.decoder(inputs_embeds=embeds, attention_mask=attention_mask, labels=labels)
 
     def set_trainable(self, projector=True, decoder_lora=False, encoder=False):
