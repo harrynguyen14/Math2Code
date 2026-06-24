@@ -26,8 +26,9 @@ class MathCoderVLM(nn.Module):
     def __init__(self, vit=VIT, llm=LLM, dtype=torch.bfloat16):
         super().__init__()
         self.encoder = AutoModel.from_pretrained(vit, trust_remote_code=True, torch_dtype=dtype)
+        # SDPA ko FA2: Qwen2+FA2 raise với right-padding (đúng cho train causal). Liger vẫn lo loss/RMSNorm.
         self.decoder = AutoModelForCausalLM.from_pretrained(
-            llm, torch_dtype=dtype, attn_implementation="flash_attention_2")
+            llm, torch_dtype=dtype, attn_implementation="sdpa")
         try:
             from liger_kernel.transformers import apply_liger_kernel_to_qwen2
             apply_liger_kernel_to_qwen2(model=self.decoder)

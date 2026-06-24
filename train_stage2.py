@@ -55,7 +55,7 @@ def main():
         save_steps=2000,
         save_total_limit=3,
         remove_unused_columns=False,
-        dataloader_num_workers=8,
+        dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
     )
