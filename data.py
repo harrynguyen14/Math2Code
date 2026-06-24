@@ -7,7 +7,7 @@ Resize ảnh về 448x448 (InternViT single-tile; tiling đa ô để sau nếu 
 import io, glob
 import torch
 from PIL import Image
-from datasets import load_dataset, interleave_datasets
+from datasets import load_dataset
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
 IMG_SIZE = 448
@@ -25,18 +25,14 @@ def _to_pil(img):
 
 
 def make_dataset(shards_glob, seed=3407, buffer=10000):
-    """Mỗi shard = 1 category (shard0 hình học, shard1 chart...). Nếu đọc tuần tự
-    sẽ train hết category này mới sang category kia -> catastrophic forgetting.
-    interleave_datasets xoay vòng các shard -> mỗi batch lẫn đủ category.
-    shuffle buffer to (RAM 64GB dư) để trộn mịn thêm trong từng stream.
+    """20 shard chia ngẫu nhiên (mỗi shard đã lẫn đủ category) -> nạp cả list vào 1
+    load_dataset: dataset có 20 shard nên dataloader chia được cho nhiều worker.
+    (load riêng từng file rồi interleave làm mỗi stream num_shards=1 -> worker cap về 1.)
+    shuffle buffer to để trộn mịn trong stream.
     """
     shards = sorted(glob.glob(shards_glob))
     assert shards, f"Không thấy parquet ở {shards_glob}"
-    streams = [
-        load_dataset("parquet", data_files=s, split="train", streaming=True)
-        for s in shards
-    ]
-    ds = interleave_datasets(streams, seed=seed)  # xoay vòng đều giữa các shard
+    ds = load_dataset("parquet", data_files=shards, split="train", streaming=True)
     return ds.shuffle(seed=seed, buffer_size=buffer)
 
 
