@@ -10,7 +10,7 @@ from transformers import Trainer, TrainingArguments
 from model import MathCoderVLM
 from data import make_dataset, Collator
 
-SHARDS = r"D:\math-dataset\Python\*.parquet"
+SHARDS = "/workspace/data/math-dataset/Python/*.parquet"
 
 # Blackwell (sm_120): bật TF32 cho matmul/cudnn -> nhanh hơn fp32 path, không đụng bf16.
 torch.set_float32_matmul_precision("high")

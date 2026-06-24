@@ -26,14 +26,8 @@ class MathCoderVLM(nn.Module):
     def __init__(self, vit=VIT, llm=LLM, dtype=torch.bfloat16):
         super().__init__()
         self.encoder = AutoModel.from_pretrained(vit, trust_remote_code=True, torch_dtype=dtype)
-        # FA2 cho decoder (Qwen hỗ trợ); chuỗi dài do 1024 vision token -> lợi rõ.
-        # InternViT custom code chưa chắc nhận FA2 -> để mặc định (SDPA).
         self.decoder = AutoModelForCausalLM.from_pretrained(
             llm, torch_dtype=dtype, attn_implementation="flash_attention_2")
-        # Liger Triton kernel cho Qwen2: fused cross-entropy (không materialize logits
-        # [B,T,150k]) + RoPE + RMSNorm + SwiGLU. Đúng bộ kernel kiểu Unsloth, plug-in.
-        # Patch trực tiếp decoder vì model là wrapper -> flag use_liger_kernel của Trainer
-        # không nhận diện được wrapper type.
         try:
             from liger_kernel.transformers import apply_liger_kernel_to_qwen2
             apply_liger_kernel_to_qwen2(model=self.decoder)
@@ -124,14 +118,15 @@ class MathCoderVLM(nn.Module):
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding="utf-8")
-    m = MathCoderVLM()
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    m = MathCoderVLM().to(dev)         # InternViT flash_attn cần CUDA
     n_patch = (448 // 14) ** 2          # 1024 patches @448px
     n_vis = n_patch // 4               # sau pixel_shuffle: 256 token
-    px = torch.randn(1, 3, 448, 448, dtype=torch.bfloat16)
+    px = torch.randn(1, 3, 448, 448, dtype=torch.bfloat16, device=dev)
     # dựng input: prompt có n_vis image token
     img_tokens = IMAGE_TOKEN * n_vis
     text = f"<|im_start|>user\n{img_tokens}Write the Python code.<|im_end|>\n<|im_start|>assistant\n"
-    enc = m.tok(text, return_tensors="pt")
+    enc = m.tok(text, return_tensors="pt").to(dev)
     with torch.no_grad():
         out = m(enc.input_ids, enc.attention_mask, px)
     logits = out.logits

@@ -10,7 +10,7 @@ from transformers import Trainer, TrainingArguments
 from model import MathCoderVLM
 from data import make_dataset, Collator
 
-SHARDS = r"D:\math-dataset\Python\*.parquet"
+SHARDS = "/workspace/data/math-dataset/Python/*.parquet"
 PROJECTOR = "out/stage1/projector.pt"
 
 # Blackwell (sm_120): TF32 matmul/cudnn.

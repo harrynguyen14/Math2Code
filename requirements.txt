@@ -1,0 +1,18 @@
+# Cài trên server (GPU/CUDA 12.8 cho 5090 Blackwell sm_120):
+#   uv pip install -r requirements.txt
+#   uv pip install flash-attn --no-build-isolation   # build riêng, cần nvcc + torch sẵn
+
+# torch: cài bản cu128 cho Blackwell TRƯỚC, từ index riêng (đừng để pip kéo bản cpu):
+#   uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch
+
+transformers
+datasets            # streaming parquet + interleave_datasets
+peft                # LoRA stage2
+accelerate          # Trainer backend
+liger-kernel        # fused CE/RoPE/RMSNorm/SwiGLU cho Qwen2
+einops              # InternViT trust_remote_code cần
+timm                # InternViT trust_remote_code cần
+pillow              # decode ảnh trong collator
+huggingface_hub     # tải dataset/model
+hf_transfer         # tải nhanh (hoặc dùng HF_XET_HIGH_PERFORMANCE=1)
