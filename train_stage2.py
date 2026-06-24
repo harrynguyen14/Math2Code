@@ -33,6 +33,10 @@ def main():
         task_type="CAUSAL_LM",
     )
     model.decoder = get_peft_model(model.decoder, lora)
+    # grad-ckp bật TAY trên decoder (PEFT có method); MathCoderVLM ko có nên ko set qua
+    # TrainingArguments. Stage2 decoder train -> ckp cắt VRAM thật (khác stage1 freeze).
+    model.decoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.decoder.enable_input_require_grads()  # cần cho grad-ckp khi input là inputs_embeds
     for p in model.encoder.parameters(): p.requires_grad_(False)
     for p in model.projector.parameters(): p.requires_grad_(True)
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -41,8 +45,8 @@ def main():
     ds = make_dataset(SHARDS)
     args = TrainingArguments(
         output_dir="out/stage2",
-        per_device_train_batch_size=8,       # 256 token + encoder no_grad -> tăng từ 2
-        gradient_accumulation_steps=4,       # batch hiệu dụng 32
+        per_device_train_batch_size=2,       # decoder train (LoRA+activation) nặng hơn stage1 -> batch nhỏ
+        gradient_accumulation_steps=16,      # batch hiệu dụng 32
         max_steps=30000,                      # ~960k ảnh; tăng dần, eval giữa chừng (đừng cam kết mù 4tr)
         learning_rate=2e-4,
         warmup_steps=200,
