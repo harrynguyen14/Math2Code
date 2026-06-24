@@ -132,5 +132,6 @@ if __name__ == "__main__":
     logits = out.logits
     print("logits shape:", logits.shape, "| n_vis:", n_vis)
     assert not torch.isnan(logits).any(), "NaN trong logits!"
-    assert logits.shape[-1] == len(m.tok), "vocab size lệch"
+    # Qwen2.5 đệm embedding (151936) > len(tok) (~151665) cho hiệu năng -> so với head, ko phải tok
+    assert logits.shape[-1] == m.decoder.get_output_embeddings().weight.shape[0], "vocab size lệch"
     print("OK: forward chạy, không NaN, vocab khớp.")
