@@ -29,7 +29,8 @@ def main():
         output_dir="out/stage1",
         per_device_train_batch_size=4,       # seq ~2048 nặng VRAM -> batch nhỏ
         gradient_accumulation_steps=8,       # batch hiệu dụng 32
-        gradient_checkpointing=True,         # đổi compute lấy VRAM (decoder full-grad, 1.5B)
+        # ko grad-ckp: MathCoderVLM ko phải HF model (ko có gradient_checkpointing_enable),
+        # mà stage1 decoder freeze nên ckp cũng vô tác dụng. Dựa vào batch nhỏ thôi.
         max_steps=3000,                       # align nhanh: ~96k ảnh; tăng nếu loss chưa phẳng
         learning_rate=1e-3,                   # projector mới random -> LR cao
         warmup_steps=100,
