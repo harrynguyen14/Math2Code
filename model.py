@@ -31,8 +31,8 @@ class MathCoderVLM(nn.Module):
         try:
             from liger_kernel.transformers import apply_liger_kernel_to_qwen2
             apply_liger_kernel_to_qwen2(model=self.decoder)
-        except ImportError:
-            print("liger_kernel chưa cài (pip install liger-kernel) -> dùng kernel mặc định")
+        except Exception as e:  # ImportError = chưa cài; lỗi khác = tên hàm/version lệch
+            print(f"liger_kernel ko áp dụng được ({type(e).__name__}: {e}) -> kernel mặc định")
         self.tok = AutoTokenizer.from_pretrained(llm)
         if IMAGE_TOKEN not in self.tok.get_vocab():
             self.tok.add_special_tokens({"additional_special_tokens": [IMAGE_TOKEN]})
