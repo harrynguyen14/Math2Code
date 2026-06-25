@@ -37,8 +37,11 @@ def make_dataset(shards_glob, seed=3407, buffer=10000):
     shards = sorted(glob.glob(shards_glob))
     assert shards, f"Không thấy parquet ở {shards_glob}"
     ds = load_dataset("parquet", data_files=shards, split="train")  # non-streaming
-    # cột length cho group_by_length: xấp xỉ token bằng len(text) (~tỉ lệ) -> đủ để gom batch cùng cỡ
-    ds = ds.map(lambda ex: {"length": len(ex["text"])}, num_proc=4)
+    # cột length cho group_by_length: xấp xỉ token bằng len(text) (~tỉ lệ) -> đủ để gom batch cùng cỡ.
+    # ds.map ghi LẠI cả bảng (ảnh embedded) ra đĩa -> vài chục GB -> đầy đĩa. Thay bằng add_column:
+    # chỉ đọc cột text (nhẹ, ko ảnh), tính len, gắn cột length in-memory -> ko nhân đôi đĩa.
+    lengths = [len(t) for t in ds["text"]]
+    ds = ds.add_column("length", lengths)
     return ds.shuffle(seed=seed)
 
 
