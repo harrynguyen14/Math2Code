@@ -37,7 +37,9 @@ def main():
         task_type="CAUSAL_LM",
     )
     model.decoder = get_peft_model(model.decoder, lora)
-    # ko grad-ckp: batch 8 chỉ ngốn ~26/32GB nên ko cần đánh đổi compute. Tắt -> nhanh ~20%.
+    # seq 4096 gấp đôi activation -> bật grad-ckp decoder để vừa VRAM (đổi compute lấy bộ nhớ).
+    model.decoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.decoder.enable_input_require_grads()  # cần cho grad-ckp khi input là inputs_embeds
     for p in model.encoder.parameters(): p.requires_grad_(False)
     for p in model.projector.parameters(): p.requires_grad_(True)
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -46,8 +48,8 @@ def main():
     ds = make_dataset(SHARDS)
     args = TrainingArguments(
         output_dir="out/stage2",
-        per_device_train_batch_size=4,       # batch8 OOM (decoder train, activation backward nặng)
-        gradient_accumulation_steps=8,       # batch hiệu dụng 32
+        per_device_train_batch_size=2,       # seq 4096 + grad-ckp -> batch 2 vừa 31GB
+        gradient_accumulation_steps=16,      # batch hiệu dụng 32
         max_steps=30000,                      # ~960k ảnh; tăng dần, eval giữa chừng (đừng cam kết mù 4tr)
         learning_rate=2e-4,
         warmup_steps=200,
