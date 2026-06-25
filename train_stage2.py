@@ -66,7 +66,8 @@ def main():
         save_total_limit=3,
         save_safetensors=False,
         remove_unused_columns=False,
-        group_by_length=True,                # gom mẫu cùng độ dài/batch -> ít pad phí, VRAM phẳng
+        group_by_length=False,               # 4.1M dòng -> build length-sampler treo lâu trước step 1.
+                                             # Tắt: vào step ngay. Bật lại nếu pad phí đáng kể.
         length_column_name="length",         # cột thêm trong make_dataset (len(text), ~token)
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
