@@ -42,8 +42,8 @@ def main():
     ds = make_dataset(SHARDS)
     args = TrainingArguments(
         output_dir="out/stage2",
-        per_device_train_batch_size=8,       # stage1 batch4=18GB; stage2 batch8 ~26GB, còn dư
-        gradient_accumulation_steps=4,       # batch hiệu dụng 32
+        per_device_train_batch_size=4,       # batch8 OOM (decoder train, activation backward nặng)
+        gradient_accumulation_steps=8,       # batch hiệu dụng 32
         max_steps=30000,                      # ~960k ảnh; tăng dần, eval giữa chừng (đừng cam kết mù 4tr)
         learning_rate=2e-4,
         warmup_steps=200,
