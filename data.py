@@ -4,10 +4,14 @@ FigCodifier parquet: cột `image` (bytes/dict/PIL) + `text` (code Python).
 Mỗi mẫu -> prompt có N image token (N = số vision token sau encode) + code làm label.
 Resize ảnh về 448x448 (InternViT single-tile; tiling đa ô để sau nếu cần độ phân giải cao hơn).
 """
-import io, glob
+import io, glob, os
 import torch
 from PIL import Image
 from datasets import load_dataset
+
+# ~ thường nhỏ; trỏ cache Arrow sang ổ workspace (to hơn) để khỏi đầy đĩa khi build 2.7M dòng.
+# ponytail: override bằng HF_DATASETS_CACHE nếu ổ khác; chỉ set khi chưa có sẵn.
+os.environ.setdefault("HF_DATASETS_CACHE", "/workspace/hf_cache")
 
 INSTRUCTION = "Write the Python code that reproduces the following mathematical image."
 IMG_SIZE = 448
