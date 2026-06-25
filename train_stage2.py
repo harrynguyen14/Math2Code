@@ -65,9 +65,10 @@ def main():
         save_total_limit=3,
         save_safetensors=False,
         remove_unused_columns=False,
-        group_by_length=True,                # gom seq cùng độ dài/batch -> ít pad phí + VRAM đỉnh đều
-                                             # (quan trọng khi grad-ckp tắt). Sort 4.1M ~vài phút trước step 1.
-        length_column_name="length",         # cột thêm trong make_dataset (len(text), ~token)
+        # group_by_length TẮT: HF build LengthGroupedSampler đọc length qua Arrow loader -> 3+ phút
+        # CPU trên 4.1M dòng ảnh-embedded (worker đứng im, ko vào step). Ko bõ cho mỗi tiết kiệm pad.
+        group_by_length=False,
+        length_column_name="length",         # giữ cột (rẻ) phòng bật lại sau
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
