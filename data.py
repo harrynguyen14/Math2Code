@@ -51,7 +51,7 @@ class Collator:
         imgs = [_to_pil(ex["image"]) for ex in batch]
         pixels = self.image_proc(imgs, return_tensors="pt").pixel_values  # [B,3,H,W]
 
-        input_ids, labels = [], []
+        input_ids, labels, masks = [], [], []
         for ex in batch:
             prompt = (f"<|im_start|>user\n{self.image_token * N_VIS}{INSTRUCTION}"
                       f"<|im_end|>\n<|im_start|>assistant\n")
@@ -62,11 +62,14 @@ class Collator:
             lab = ([-100] * len(p_ids) + a_ids)[: self.max_len]  # chỉ loss trên code
             input_ids.append(torch.tensor(ids))
             labels.append(torch.tensor(lab))
+            masks.append(torch.ones(len(ids), dtype=torch.long))  # mask theo ĐỘ DÀI thật
 
+        # pad=eos (Qwen ko có pad riêng) -> KO tính mask bằng (ids!=pad): sẽ nuốt luôn eos cuối câu
+        # => model ko học token dừng. Pad mask riêng (giá trị 0) để eos cuối giữ mask=1.
         pad = self.tok.pad_token_id or self.tok.eos_token_id
         input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad)
         labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-100)
-        attn = (input_ids != pad).long()
+        attn = torch.nn.utils.rnn.pad_sequence(masks, batch_first=True, padding_value=0)
         return {
             "input_ids": input_ids, "attention_mask": attn,
             "labels": labels, "pixel_values": pixels,
