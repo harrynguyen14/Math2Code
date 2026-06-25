@@ -54,7 +54,7 @@ class Collator:
     """Gom batch -> input_ids/attention_mask/pixel_values/labels.
     train_on_responses_only: mask label phần prompt = -100, chỉ tính loss trên code.
     """
-    def __init__(self, model, max_len=4096):  # 4096 mới bao hết code dài nhất (đã analyze); 2048 cắt cụt
+    def __init__(self, model, max_len=1024):  # max thực tế ~1000 token (p99.9=983, max=1000); 1024 dư, ko cắt
         self.tok = model.tok
         self.image_token = "<|image_pad|>"
         self.image_proc = model.image_processor

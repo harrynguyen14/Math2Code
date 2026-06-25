@@ -37,8 +37,7 @@ def main():
         task_type="CAUSAL_LM",
     )
     model.decoder = get_peft_model(model.decoder, lora)
-    # grad-ckp TẮT: VRAM chỉ 9/32GB lúc bật -> dư 22GB. Tính lại activation là phí compute khi
-    # ko cần tiết kiệm VRAM. Tắt -> nhanh hơn. Bật lại + giảm batch nếu OOM ở seq 4096.
+    # grad-ckp TẮT: max_len=1024 (seq thực tế max ~1000 token) -> activation nhỏ, ko cần đánh đổi compute.
     for p in model.encoder.parameters(): p.requires_grad_(False)
     for p in model.projector.parameters(): p.requires_grad_(True)
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
