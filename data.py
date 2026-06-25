@@ -38,9 +38,13 @@ def make_dataset(shards_glob, seed=3407, buffer=10000):
     assert shards, f"Không thấy parquet ở {shards_glob}"
     ds = load_dataset("parquet", data_files=shards, split="train")  # non-streaming
     # cột length cho group_by_length: xấp xỉ token bằng len(text) (~tỉ lệ) -> đủ để gom batch cùng cỡ.
-    # ds.map ghi LẠI cả bảng (ảnh embedded) ra đĩa -> vài chục GB -> đầy đĩa. Thay bằng add_column:
-    # chỉ đọc cột text (nhẹ, ko ảnh), tính len, gắn cột length in-memory -> ko nhân đôi đĩa.
-    lengths = [len(t) for t in ds["text"]]
+    # ds["text"] đọc qua HF Arrow vẫn quét block ảnh -> treo trên 4.1M dòng. Đọc THẲNG cột text
+    # từ parquet bằng pyarrow (column-prune thật, ko đụng cột ảnh) -> nhanh, ko nhân đôi đĩa.
+    import pyarrow.parquet as pq
+    lengths = []
+    for f in shards:
+        col = pq.read_table(f, columns=["text"]).column("text")
+        lengths.extend(len(s) for s in col.to_pylist())
     ds = ds.add_column("length", lengths)
     return ds.shuffle(seed=seed)
 
