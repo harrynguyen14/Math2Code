@@ -48,8 +48,8 @@ def main():
     ds = make_dataset(SHARDS)
     args = TrainingArguments(
         output_dir="out/stage2",
-        per_device_train_batch_size=4,       # seq 4096 + grad-ckp: batch2=6.6GB lúc đầu, batch4 đỉnh ~24GB
-        gradient_accumulation_steps=8,       # batch hiệu dụng 32
+        per_device_train_batch_size=8,       # group_by_length + grad-ckp; đỉnh = batch toàn seq 4096
+        gradient_accumulation_steps=4,       # batch hiệu dụng 32
         max_steps=30000,                      # ~960k ảnh; tăng dần, eval giữa chừng (đừng cam kết mù 4tr)
         learning_rate=2e-4,
         warmup_steps=200,
@@ -62,7 +62,7 @@ def main():
         # save đầy đủ (optimizer+scheduler+data) để resume thật. save_safetensors=False -> torch.save
         # (pickle) xử được tied-weight Qwen2 (embed/lm_head share), safetensors thì raise.
         save_strategy="steps",
-        save_steps=2000,
+        save_steps=1000,                     # dày để OOM/crash chỉ mất <1000 step; resume = chạy lại lệnh
         save_total_limit=3,
         save_safetensors=False,
         remove_unused_columns=False,
