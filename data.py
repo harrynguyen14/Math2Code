@@ -25,15 +25,17 @@ def _to_pil(img):
 
 
 def make_dataset(shards_glob, seed=3407, buffer=10000):
-    """20 shard chia ngẫu nhiên (mỗi shard đã lẫn đủ category) -> nạp cả list vào 1
-    load_dataset: dataset có 20 shard nên dataloader chia được cho nhiều worker.
-    (load riêng từng file rồi interleave làm mỗi stream num_shards=1 -> worker cap về 1.)
-    shuffle buffer to để trộn mịn trong stream.
+    """Non-streaming: load shard (~50k dòng/file từ reshard.py) -> Arrow memory-map (ko nạp
+    hết ảnh vào RAM). Random-access được -> Trainer group_by_length gom mẫu cùng độ dài,
+    VRAM phẳng + ít pad phí. shuffle toàn bộ (random-access nên trộn thật, ko cần buffer).
+    Lần đầu datasets build Arrow cache 1 lần (ngốn đĩa); các lần sau load nhanh.
     """
     shards = sorted(glob.glob(shards_glob))
     assert shards, f"Không thấy parquet ở {shards_glob}"
-    ds = load_dataset("parquet", data_files=shards, split="train", streaming=True)
-    return ds.shuffle(seed=seed, buffer_size=buffer)
+    ds = load_dataset("parquet", data_files=shards, split="train")  # non-streaming
+    # cột length cho group_by_length: xấp xỉ token bằng len(text) (~tỉ lệ) -> đủ để gom batch cùng cỡ
+    ds = ds.map(lambda ex: {"length": len(ex["text"])}, num_proc=4)
+    return ds.shuffle(seed=seed)
 
 
 class Collator:

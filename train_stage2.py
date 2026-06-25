@@ -66,6 +66,8 @@ def main():
         save_total_limit=3,
         save_safetensors=False,
         remove_unused_columns=False,
+        group_by_length=True,                # gom mẫu cùng độ dài/batch -> ít pad phí, VRAM phẳng
+        length_column_name="length",         # cột thêm trong make_dataset (len(text), ~token)
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
