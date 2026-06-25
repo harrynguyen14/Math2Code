@@ -6,21 +6,9 @@ Ra:   out/stage2 (checkpoint) + projector cuối
 """
 import torch
 from peft import LoraConfig, get_peft_model
-from transformers import Trainer, TrainingArguments, TrainerCallback
+from transformers import Trainer, TrainingArguments
 from model import MathCoderVLM
 from data import make_dataset, Collator
-
-
-class SaveCkpt(TrainerCallback):
-    """Lưu phần train được (LoRA adapter + projector) mỗi N step -> resume khi crash.
-    Ko dùng Trainer save vì nó lưu cả decoder -> lỗi tied-weight Qwen2 (embed/lm_head share)."""
-    def __init__(self, model, every=2000):
-        self.model, self.every = model, every
-    def on_step_end(self, args, state, control, **kw):
-        if state.global_step % self.every == 0:
-            d = f"out/stage2/step-{state.global_step}"
-            self.model.decoder.save_pretrained(d)  # PEFT: chỉ adapter
-            torch.save(self.model.projector.state_dict(), f"{d}/projector.pt")
 
 SHARDS = "/workspace/data/math-dataset/Python_rg/*.parquet"  # reshard.py: row-group nhỏ, hết OOM
 PROJECTOR = "out/stage1/projector.pt"
@@ -45,10 +33,7 @@ def main():
         task_type="CAUSAL_LM",
     )
     model.decoder = get_peft_model(model.decoder, lora)
-    # grad-ckp bật TAY trên decoder (PEFT có method); MathCoderVLM ko có nên ko set qua
-    # TrainingArguments. Stage2 decoder train -> ckp cắt VRAM thật (khác stage1 freeze).
-    model.decoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model.decoder.enable_input_require_grads()  # cần cho grad-ckp khi input là inputs_embeds
+    # ko grad-ckp: batch 8 chỉ ngốn ~26/32GB nên ko cần đánh đổi compute. Tắt -> nhanh ~20%.
     for p in model.encoder.parameters(): p.requires_grad_(False)
     for p in model.projector.parameters(): p.requires_grad_(True)
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -57,8 +42,8 @@ def main():
     ds = make_dataset(SHARDS)
     args = TrainingArguments(
         output_dir="out/stage2",
-        per_device_train_batch_size=2,       # decoder train (LoRA+activation) nặng hơn stage1 -> batch nhỏ
-        gradient_accumulation_steps=16,      # batch hiệu dụng 32
+        per_device_train_batch_size=8,       # stage1 batch4=18GB; stage2 batch8 ~26GB, còn dư
+        gradient_accumulation_steps=4,       # batch hiệu dụng 32
         max_steps=30000,                      # ~960k ảnh; tăng dần, eval giữa chừng (đừng cam kết mù 4tr)
         learning_rate=2e-4,
         warmup_steps=200,
@@ -68,16 +53,24 @@ def main():
         optim="adamw_torch_fused",           # fused optim: nhanh hơn trên CUDA
         weight_decay=0.01,
         logging_steps=10,
-        save_strategy="no",                  # Trainer save cả model -> lỗi tied-weight Qwen2.
-        remove_unused_columns=False,         # callback dưới lưu adapter+projector mỗi 2000 step.
+        # save đầy đủ (optimizer+scheduler+data) để resume thật. save_safetensors=False -> torch.save
+        # (pickle) xử được tied-weight Qwen2 (embed/lm_head share), safetensors thì raise.
+        save_strategy="steps",
+        save_steps=2000,
+        save_total_limit=3,
+        save_safetensors=False,
+        remove_unused_columns=False,
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,
         report_to="none",
     )
     trainer = Trainer(model=model, args=args, train_dataset=ds,
-                      data_collator=Collator(model),
-                      callbacks=[SaveCkpt(model)])
-    trainer.train()
+                      data_collator=Collator(model))
+    # resume nếu có checkpoint cũ trong out/stage2 (stop giữa chừng -> chạy lại lệnh là tiếp)
+    import os
+    ckpts = [d for d in os.listdir(args.output_dir) if d.startswith("checkpoint-")] \
+        if os.path.isdir(args.output_dir) else []
+    trainer.train(resume_from_checkpoint=bool(ckpts))
 
     model.save_pretrained("out/stage2/final")   # 1 thư mục: decoder(LoRA)+projector+tokenizer
     print("OK -> out/stage2/final (load lại: MathCoderVLM.from_pretrained('out/stage2/final'))")
