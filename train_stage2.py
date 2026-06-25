@@ -4,6 +4,10 @@ train projector + LoRA decoder trên full 4tr ảnh. InternViT freeze.
 Chạy: python train_stage2.py
 Ra:   out/stage2 (checkpoint) + projector cuối
 """
+import os
+# gộp segment phân mảnh: step 1855 OOM với 5.77GB "reserved but unallocated" -> fragment.
+# Phải set TRƯỚC import torch. Cho seq dài (code to) khỏi vỡ ở đỉnh VRAM.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch
 from peft import LoraConfig, get_peft_model
 from transformers import Trainer, TrainingArguments
@@ -67,7 +71,6 @@ def main():
     trainer = Trainer(model=model, args=args, train_dataset=ds,
                       data_collator=Collator(model))
     # resume nếu có checkpoint cũ trong out/stage2 (stop giữa chừng -> chạy lại lệnh là tiếp)
-    import os
     ckpts = [d for d in os.listdir(args.output_dir) if d.startswith("checkpoint-")] \
         if os.path.isdir(args.output_dir) else []
     trainer.train(resume_from_checkpoint=bool(ckpts))
