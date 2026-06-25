@@ -37,9 +37,8 @@ def main():
         task_type="CAUSAL_LM",
     )
     model.decoder = get_peft_model(model.decoder, lora)
-    # seq 4096 gấp đôi activation -> bật grad-ckp decoder để vừa VRAM (đổi compute lấy bộ nhớ).
-    model.decoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model.decoder.enable_input_require_grads()  # cần cho grad-ckp khi input là inputs_embeds
+    # grad-ckp TẮT: VRAM chỉ 9/32GB lúc bật -> dư 22GB. Tính lại activation là phí compute khi
+    # ko cần tiết kiệm VRAM. Tắt -> nhanh hơn. Bật lại + giảm batch nếu OOM ở seq 4096.
     for p in model.encoder.parameters(): p.requires_grad_(False)
     for p in model.projector.parameters(): p.requires_grad_(True)
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -66,8 +65,8 @@ def main():
         save_total_limit=3,
         save_safetensors=False,
         remove_unused_columns=False,
-        group_by_length=False,               # 4.1M dòng -> build length-sampler treo lâu trước step 1.
-                                             # Tắt: vào step ngay. Bật lại nếu pad phí đáng kể.
+        group_by_length=True,                # gom seq cùng độ dài/batch -> ít pad phí + VRAM đỉnh đều
+                                             # (quan trọng khi grad-ckp tắt). Sort 4.1M ~vài phút trước step 1.
         length_column_name="length",         # cột thêm trong make_dataset (len(text), ~token)
         dataloader_num_workers=4,            # 20 shard + row-group nhỏ -> chia worker an toàn
         dataloader_pin_memory=True,

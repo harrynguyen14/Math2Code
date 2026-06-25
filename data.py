@@ -41,8 +41,9 @@ def make_dataset(shards_glob, seed=3407, buffer=10000):
     # ds["text"] đọc qua HF Arrow vẫn quét block ảnh -> treo trên 4.1M dòng. Đọc THẲNG cột text
     # từ parquet bằng pyarrow (column-prune thật, ko đụng cột ảnh) -> nhanh, ko nhân đôi đĩa.
     import pyarrow.parquet as pq
+    from tqdm import tqdm
     lengths = []
-    for f in shards:
+    for f in tqdm(shards, desc="length (cho group_by_length)"):
         col = pq.read_table(f, columns=["text"]).column("text")
         lengths.extend(len(s) for s in col.to_pylist())
     ds = ds.add_column("length", lengths)
