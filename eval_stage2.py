@@ -48,6 +48,7 @@ ids = m.tok(prompt, add_special_tokens=False, return_tensors="pt").input_ids.to(
 
 def generate(px):  # chèn vision embed vào prompt rồi generate (batch=1)
     embeds = m.decoder.get_input_embeddings()(ids)
+    px = px.to(next(m.encoder.parameters()).dtype)  # encoder bf16; eval ko autocast -> ép dtype khớp
     vis = m.encode_images(px).to(embeds.dtype)
     embeds[ids == m.image_token_id] = vis.reshape(-1, vis.shape[-1])
     with torch.no_grad():
