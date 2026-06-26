@@ -52,13 +52,18 @@ with torch.no_grad():
         vision, dummy, str(vpath),
         input_names=["pixel_values"], output_names=["vision_embeds"],
         dynamic_axes={"pixel_values": {0: "batch"}, "vision_embeds": {0: "batch"}},
-        opset_version=17,
+        opset_version=18,   # 17 ko convert được op Resize (bicubic interpolate); 18 chạy thẳng
     )
 
 # --- 2. decoder -> ONNX qua optimum (KV-cache, generate-ready) --------------
+# Liger (apply_liger_kernel_to_qwen2 trong model.py) monkeypatch Qwen2 class toàn cục -> RMSNorm
+# thành Triton kernel, ko trace ONNX được. Lưu weight rồi RELOAD bằng class Qwen2 gốc (revert patch).
 print("Export decoder ONNX (optimum)...")
 dec_dir = out / "decoder_onnx"
 tmp = out / "_decoder_hf"; m.decoder.save_pretrained(tmp); m.tok.save_pretrained(tmp)
+del m  # nhả model Liger-patched
+import importlib, transformers.models.qwen2.modeling_qwen2 as q2
+importlib.reload(q2)  # reset Qwen2 class về method gốc -> gỡ Triton kernel của Liger, trace được
 from optimum.onnxruntime import ORTModelForCausalLM
 ORTModelForCausalLM.from_pretrained(tmp, export=True).save_pretrained(dec_dir)
 shutil.rmtree(tmp)
