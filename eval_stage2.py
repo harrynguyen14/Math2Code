@@ -5,6 +5,7 @@ Chạy: python eval_stage2.py --per-type 20
 """
 import argparse, glob, os, re, subprocess, sys, tempfile, torch
 import pyarrow.parquet as pq
+from tqdm import tqdm
 from model import MathCoderVLM
 from data import Collator, INSTRUCTION, N_VIS
 
@@ -64,7 +65,7 @@ for shard in shards:
     take = min(args.per_type, tbl.num_rows)
     rows = tbl.slice(max(0, tbl.num_rows - take), take).to_pylist()  # held-out cuối shard
     passed = 0
-    for ex in rows:
+    for ex in tqdm(rows, desc=name, leave=False):
         px = col([ex])["pixel_values"].to(dev)
         passed += runs_ok(strip_code(generate(px)))
     rate = passed / take
