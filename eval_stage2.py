@@ -15,6 +15,7 @@ ap.add_argument("--shards", default="/workspace/data/math-dataset/Python_rg/*.pa
 ap.add_argument("--per-type", type=int, default=20, help="số mẫu mỗi shard")
 ap.add_argument("--max-new", type=int, default=3072)
 ap.add_argument("--timeout", type=int, default=30)
+ap.add_argument("--batch", type=int, default=8, help="số ảnh / lần generate")
 args = ap.parse_args()
 
 PREFIX = ("import matplotlib\nmatplotlib.use('Agg')\n"
@@ -45,16 +46,23 @@ m.eval()
 col = Collator(m)
 prompt = (f"<|im_start|>user\n{'<|image_pad|>' * N_VIS}{INSTRUCTION}"
           f"<|im_end|>\n<|im_start|>assistant\n")
-ids = m.tok(prompt, add_special_tokens=False, return_tensors="pt").input_ids.to(dev)
+ids = m.tok(prompt, add_special_tokens=False, return_tensors="pt").input_ids.to(dev)  # [1,T]
+eos = m.tok.eos_token_id
+GEN = dict(do_sample=False, temperature=None, top_p=None, top_k=None,  # greedy sạch -> hết warning
+           use_cache=True, pad_token_id=eos, eos_token_id=eos)
 
-def generate(px):  # chèn vision embed vào prompt rồi generate (batch=1)
-    embeds = m.decoder.get_input_embeddings()(ids)
-    px = px.to(next(m.encoder.parameters()).dtype)  # encoder bf16; eval ko autocast -> ép dtype khớp
-    vis = m.encode_images(px).to(embeds.dtype)
-    embeds[ids == m.image_token_id] = vis.reshape(-1, vis.shape[-1])
+def generate_batch(px):  # px: [B,3,H,W]. Prompt giống hệt mọi mẫu -> embed tile B lần, ko cần pad.
+    B = px.shape[0]
+    ids_b = ids.expand(B, -1)                                  # [B,T] cùng prompt
+    embeds = m.decoder.get_input_embeddings()(ids_b)           # [B,T,d]
+    px = px.to(next(m.encoder.parameters()).dtype)             # encoder bf16; eval ko autocast
+    vis = m.encode_images(px).to(embeds.dtype)                 # [B,N_VIS,d]
+    mask = (ids_b == m.image_token_id)                         # [B,T]; image token cùng vị trí mọi hàng
+    embeds[mask] = vis.reshape(-1, vis.shape[-1])              # row-major -> khớp thứ tự (mẫu i, token j)
     with torch.no_grad():
-        out = m.decoder.generate(inputs_embeds=embeds, max_new_tokens=args.max_new, do_sample=False)
-    return m.tok.decode(out[0], skip_special_tokens=True)
+        out = m.decoder.generate(inputs_embeds=embeds, attention_mask=torch.ones_like(ids_b),
+                                 max_new_tokens=args.max_new, **GEN)
+    return m.tok.batch_decode(out, skip_special_tokens=True)   # [B] strings
 
 shards = sorted(glob.glob(args.shards))
 print(f"Found {len(shards)} shards\n")
@@ -65,9 +73,11 @@ for shard in shards:
     take = min(args.per_type, tbl.num_rows)
     rows = tbl.slice(max(0, tbl.num_rows - take), take).to_pylist()  # held-out cuối shard
     passed = 0
-    for ex in tqdm(rows, desc=name, leave=False):
-        px = col([ex])["pixel_values"].to(dev)
-        passed += runs_ok(strip_code(generate(px)))
+    for i in tqdm(range(0, take, args.batch), desc=name, leave=False):
+        chunk = rows[i:i + args.batch]
+        px = col(chunk)["pixel_values"].to(dev)
+        for raw in generate_batch(px):
+            passed += runs_ok(strip_code(raw))
     rate = passed / take
     results[name] = (passed, take, rate)
     overall_pass += passed; overall_n += take
