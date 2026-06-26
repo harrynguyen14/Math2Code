@@ -11,7 +11,7 @@ Rồi quantize động int8 cả hai (QInt8 trên Linear/MatMul -> ~4x nhỏ, CP
 
 Chạy: python export_onnx.py --ckpt out/stage2/final --out pack_cpu
 Giao cả thư mục pack_cpu/ + infer_cpu.py cho user.
-Cài: pip install optimum[onnxruntime] onnx onnxruntime
+Cài: pip install optimum[onnxruntime] onnx onnxruntime onnxscript
 """
 import argparse, json, shutil
 from pathlib import Path
@@ -29,6 +29,12 @@ out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
 print("Load model (fp32)...")
 m = MathCoderVLM.from_pretrained(args.ckpt, dtype=torch.float32).eval()
 m.decoder = m.decoder.merge_and_unload()   # gộp LoRA -> decoder thành Qwen thường, export được
+
+# InternViT mặc định dùng flash-attn (chỉ nhận fp16/bf16) -> assert fail khi export fp32.
+# Ép naive_attn (math thuần) trên mọi module có cờ này -> export được, kết quả số học y hệt.
+for mod in m.encoder.modules():
+    if hasattr(mod, "use_flash_attn"):
+        mod.use_flash_attn = False
 
 
 # --- 1. encoder + projector -> vision.onnx ---------------------------------
