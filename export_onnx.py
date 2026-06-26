@@ -61,6 +61,9 @@ with torch.no_grad():
 print("Export decoder ONNX (optimum)...")
 dec_dir = out / "decoder_onnx"
 tmp = out / "_decoder_hf"; m.decoder.save_pretrained(tmp); m.tok.save_pretrained(tmp)
+m.tok.save_pretrained(out / "tokenizer")             # lưu tok + meta TRƯỚC khi del m
+meta_d = {"n_vis": N_VIS, "img_size": IMG_SIZE, "image_token": IMAGE_TOKEN,
+          "image_token_id": m.image_token_id, "instruction": INSTRUCTION}
 del m  # nhả model Liger-patched
 import importlib, transformers.models.qwen2.modeling_qwen2 as q2
 importlib.reload(q2)  # reset Qwen2 class về method gốc -> gỡ Triton kernel của Liger, trace được
@@ -80,10 +83,6 @@ vpath.unlink()
 for f in dec_dir.glob("*.onnx"):                 # model.onnx (+ decoder_with_past nếu có)
     quantize_dynamic(str(f), str(f), weight_type=QuantType.QInt8)
 
-# --- 4. tokenizer + meta ----------------------------------------------------
-m.tok.save_pretrained(out / "tokenizer")
-(out / "meta.json").write_text(json.dumps({
-    "n_vis": N_VIS, "img_size": IMG_SIZE, "image_token": IMAGE_TOKEN,
-    "image_token_id": m.image_token_id, "instruction": INSTRUCTION,
-}, indent=2))
+# --- 4. meta (tokenizer đã lưu ở bước 2) ------------------------------------
+(out / "meta.json").write_text(json.dumps(meta_d, indent=2))
 print(f"Done -> {out}/  (vision_int8.onnx, decoder_onnx/, tokenizer/, meta.json)")
