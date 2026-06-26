@@ -65,7 +65,9 @@ del m  # nhả model Liger-patched
 import importlib, transformers.models.qwen2.modeling_qwen2 as q2
 importlib.reload(q2)  # reset Qwen2 class về method gốc -> gỡ Triton kernel của Liger, trace được
 from optimum.onnxruntime import ORTModelForCausalLM
-ORTModelForCausalLM.from_pretrained(tmp, export=True).save_pretrained(dec_dir)
+# no_post_process: bỏ bước dedup tied weight (lm_head/embed_tokens) — model >2GB serialize protobuf fail.
+# Ko sao: int8 quantize ngay sau ép nhỏ lại; weight trùng ko ảnh hưởng kết quả.
+ORTModelForCausalLM.from_pretrained(tmp, export=True, no_post_process=True).save_pretrained(dec_dir)
 shutil.rmtree(tmp)
 
 # --- 3. quantize động int8 (cả hai) ----------------------------------------
